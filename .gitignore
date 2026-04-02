@@ -1,0 +1,13 @@
+.Rhistory
+.RData
+.Rproj.user/
+
+# Runtime vault artifacts
+.zerotracefs/
+mount/
+data/container.rds
+
+# OS/editor noise
+Thumbs.db
+Desktop.ini
+*.tmp
