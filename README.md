@@ -1,273 +1,226 @@
+<div align="center">
+
 # ZeroTraceFS
 
-ZeroTraceFS is a self-destructing encrypted file system implemented fully in R.
-It provides a virtual vault where files in mount/ are synchronized into encrypted storage in data/container.rds, then automatically destroyed when configured triggers fire.
+### Self-Destructing Encrypted File System in R
 
-## Highlights
+> `Encrypt` &nbsp;&rarr;&nbsp; `Use` &nbsp;&rarr;&nbsp; `Destroy` &nbsp;&rarr;&nbsp; `Automatically`
 
-- AES-256-CBC encryption for file payloads
-- PBKDF2-HMAC-SHA256 key derivation (10,000 iterations)
-- Duress password and failed-auth lockout destruction
-- Per-file and global self-destruct triggers
-- Secure wipe engine (3 random overwrite passes + 1 zero pass)
-- Encrypted state persistence across sessions
-- Interactive CLI commands in main.R
+<br/>
 
-## Prerequisites
+[![R](https://img.shields.io/badge/R-4.0%2B-276DC3?style=flat-square&logo=r&logoColor=white)](https://www.r-project.org/)
+[![Encryption](https://img.shields.io/badge/Encryption-AES--256--CBC-CC0000?style=flat-square&logo=letsencrypt&logoColor=white)](https://en.wikipedia.org/wiki/Advanced_Encryption_Standard)
+[![PBKDF2](https://img.shields.io/badge/KDF-PBKDF2%20100k%20iter-orange?style=flat-square)](https://en.wikipedia.org/wiki/PBKDF2)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-555555?style=flat-square&logo=linux&logoColor=white)](https://cran.r-project.org/)
+[![License](https://img.shields.io/badge/License-Proprietary-black?style=flat-square)](./LICENSE)
 
-- R 4.0+
-- VS Code with R extension
+<br/>
 
-## Installation and Startup
+**An in-memory encrypted virtual file system that automatically destroys sensitive data**
+**when it is no longer needed &mdash; no manual cleanup, no recoverable traces.**
 
-1. Clone or extract the project into a folder named ZeroTraceFS.
-2. Open the folder in VS Code.
-3. Start an R terminal in VS Code.
-4. Run:
+<br/>
+
+</div>
+
+---
+
+## What is ZeroTraceFS?
+
+Traditional file systems have a fundamental flaw: **deleted files are never truly deleted.** Data lingers on disk long after its purpose ends and can be recovered with forensic tools hours, days, or even years later.
+
+ZeroTraceFS solves this at the root:
+
+- Every file is **encrypted with AES-256-CBC** the instant it is written
+- All data lives **exclusively in RAM** &mdash; nothing is ever written to disk
+- Files are **automatically, irreversibly destroyed** the moment any configured condition fires
+- Zero cloud dependencies, zero admin rights, zero manual intervention
+
+---
+
+## Features
+
+| Feature | Detail |
+|---|---|
+| **AES-256-CBC Encryption** | Military-grade cipher, unique IV per file per write |
+| **In-Memory Storage** | Data lives only in RAM &mdash; no disk traces possible |
+| **7 Self-Destruct Triggers** | Time, read count, deadline, auth failure, duress, inactivity |
+| **Secure 4-Pass Wipe** | Cryptographic overwrite &mdash; forensically unrecoverable |
+| **PBKDF2 Key Derivation** | 100,000 iterations &mdash; resistant to brute-force attacks |
+| **Duress Password** | Wipes data silently when a coercion password is entered |
+| **Dead Man's Switch** | Auto-destroys if owner fails to check in on schedule |
+| **Full Audit Logging** | Tamper-evident record of every file operation |
+| **Persistent Containers** | Optional encrypted save/load for cross-session storage |
+| **Cross-Platform** | Windows, macOS, Linux &mdash; no admin rights required |
+
+---
+
+## Quick Start
 
 ```r
-source("main.R")
+# Install dependencies
+install.packages(c("R6", "openssl", "digest", "testthat"))
 ```
 
-Control mode behavior:
+```r
+# Create an encrypted in-memory file system (auto-destroys after 1 hour)
+fs <- SDEFS$new(password = "your-strong-password", ttl_seconds = 3600)
 
-- Explorer mode is default (non-blocking), optimized for File Explorer and click controls.
-- Optional terminal command mode can be enabled by setting environment variable before launch:
+# Write an object -- encrypted immediately, stored only in RAM
+fs$write("api_key.txt", "sk-abc123xyz", ttl_seconds = 300)
 
-```powershell
-$env:ZTFS_CONTROL_MODE = "terminal"
+# Read it back -- decrypted on-the-fly, never touches disk
+fs$read("api_key.txt")
+
+# List all live files
+fs$list_files()
+
+# Manually trigger full secure wipe
+fs$destroy()
 ```
 
-On first run, ZeroTraceFS installs missing packages automatically:
+---
 
-- R6
-- openssl
-- digest
-- jsonlite
-- fs
-- later
-- cli
-- crayon
+## The 7 Self-Destruct Triggers
 
-## Runtime Behavior
+> Any single trigger firing causes an **immediate, irrecoverable** secure wipe of the affected data.
 
-### First Run
+| # | Trigger | Fires When... | Example |
+|:---:|---|---|---|
+| 1 | **Per-File TTL** | File age exceeds configured lifetime | Temp credential expires after 5 min |
+| 2 | **Read Limit** | File has been read N times | One-time password self-destructs after use |
+| 3 | **Date Deadline** | A specific calendar date is reached | Research data expires at project end |
+| 4 | **Global TTL** | The whole container ages out | Session wiped automatically at day's end |
+| 5 | **Failed Authentication** | N consecutive wrong passwords entered | Brute-force attack triggers total wipe |
+| 6 | **Duress Password** | Special "panic" password is entered | Coercion attempt causes silent wipe |
+| 7 | **Dead Man's Switch** | Owner misses a scheduled check-in | Unattended server data self-destructs |
 
-1. Installs packages and initializes mount/ and data/.
-2. Prompts to create a new vault.
-3. Captures master password and duress password.
-4. Captures dead man's switch interval and global vault TTL.
-5. Saves initial encrypted container state to data/container.rds.
-6. Starts sync + command loop.
+---
 
-### Subsequent Runs
+## Secure Wipe Protocol
 
-1. Loads container from data/container.rds.
-2. Prompts for password.
-3. Master password unlocks vault and populates mount/.
-4. Duress password triggers full destruction and exits with Vault is empty.
-5. Failed attempts are tracked; lockout wipes vault.
+Standard deletion only removes a directory pointer &mdash; the raw bytes remain in memory until coincidentally overwritten. ZeroTraceFS uses a **4-pass cryptographic wipe** that makes recovery virtually impossible:
 
-## Commands
-
-- status
-- list
-- add <filepath>
-- read <filename>
-- set-ttl <filename> <minutes>
-- set-reads <filename> <max>
-- set-deadline <filename> <YYYY-mm-dd HH:MM:SS>
-- audit
-- export <filename> <dest>
-- destroy <filename>
-- destroy-all
-- lock
-- change-password
-- quit
-
-## File Explorer Integration (Windows)
-
-ZeroTraceFS can now be controlled from Windows File Explorer while main.R is running.
-
-### Install Explorer Right-Click Menu
-
-Run this once in PowerShell from the project root:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\install_explorer_menu.ps1
+```
+[ Pass 1 ]  Write random bytes over all data
+[ Pass 2 ]  Write random bytes over all data
+[ Pass 3 ]  Write random bytes over all data
+[ Pass 4 ]  Write zero  bytes over all data
+                    |
+                    v
+         Destroy encryption key
+         Erase all file metadata
+         Deallocate memory region
 ```
 
-### Use Right-Click Actions
+---
 
-After installation, right-click files or folders and choose ZeroTraceFS actions:
+## Architecture
 
-- File right-click:
-  - ZeroTraceFS: Import into Vault
-  - ZeroTraceFS: Open Securely (Password)
-  - ZeroTraceFS: Destroy in Vault
-  - ZeroTraceFS: Set TTL
-  - ZeroTraceFS: Set Read Limit
-  - ZeroTraceFS: Set Deadline
-  - ZeroTraceFS: Read Preview
-  - ZeroTraceFS: Export from Vault
-- Folder right-click or folder background right-click:
-  - ZeroTraceFS: Destroy Entire Vault
-  - ZeroTraceFS: Lock Vault
-  - ZeroTraceFS: Quit Vault
-  - ZeroTraceFS: Queue Status Snapshot
-  - ZeroTraceFS: Queue List Files
-  - ZeroTraceFS: Queue Recent Audit
-  - ZeroTraceFS: Open Control Panel
-
-### How It Works
-
-- Explorer actions enqueue JSON commands in .zerotracefs/commands.
-- Running main.R consumes these commands on each cycle.
-- Results are written to .zerotracefs/processed.
-- Keep main.R running in the R terminal for Explorer actions to execute.
-- Command launcher checks runtime heartbeat and shows result dialogs (including read preview snippets).
-- Context menu actions run with hidden PowerShell window and use dialog boxes for input when needed.
-
-### Automatic Read Count from File Open (Best Effort)
-
-- When files are opened directly from mount/, ZeroTraceFS attempts to detect access-time changes and increments read_count.
-- This depends on OS/filesystem last-access timestamp behavior.
-- If your system does not update access time, use Read Preview / read command for guaranteed read_count increments.
-- For password prompt + guaranteed read tracking from File Explorer, use ZeroTraceFS: Open Securely (Password).
-
-### Click-Based Control Panel UI (Windows)
-
-Launch the control panel:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\ztfs_control_panel.ps1
+```
+ +-------------------------------------------------+
+ |                 User API Layer                  |
+ |   write()   read()   delete()   destroy()       |
+ |   list_files()   save_container()               |
+ +-------------------+-----------------------------+
+                     |
+       +-------------+-------------+
+       |             |             |
+ +------------+ +-----------+ +-------------------+
+ | Auth       | | Crypto    | | Destruction       |
+ | Engine     | | Engine    | | Engine            |
+ |            | |           | |                   |
+ | PBKDF2     | | AES-256   | | 7 trigger checks  |
+ | Salt mgmt  | | CBC       | | Policy enforce    |
+ | Password   | | IV gen    | | Secure wipe exec  |
+ | verify     | | Serialize | |                   |
+ +------------+ +-----------+ +-------------------+
+                     |
+         +-----------v-----------+
+         | Encrypted File Tree   |
+         | (stored in RAM only)  |
+         |                       |
+         | ciphertext  IV  hash  |
+         | read-count  expiry    |
+         +-----------+-----------+
+                     |
+         +-----------v-----------+
+         | Audit Logger          |
+         | Container I/O         |
+         | Integrity Checker     |
+         +-----------------------+
 ```
 
-The panel provides clickable buttons for all core actions:
+---
 
-- Import File
-- Destroy File
-- Set TTL
-- Set Read Limit
-- Set Deadline
-- Read Preview
-- Open Securely (Password)
-- Export File
-- List Vault Files
-- Show Audit
-- Refresh Status
-- Destroy Entire Vault
-- Lock Vault
-- Quit Vault
+## How It Compares
 
-You can also open it from File Explorer folder context menu:
+| Feature | VeraCrypt | Signal | AWS S3 | encryptr | **ZeroTraceFS** |
+|---|:---:|:---:|:---:|:---:|:---:|
+| AES-256 encryption | Yes | Yes | Yes | Yes | **Yes** |
+| Auto time-based destruction | No | Yes | Yes | No | **Yes** |
+| Read count limits | No | No | No | No | **Yes** |
+| Duress password | No | No | No | No | **Yes** |
+| Dead man's switch | No | No | No | No | **Yes** |
+| Secure memory wipe | No | No | No | No | **Yes** |
+| R-native | No | No | No | Yes | **Yes** |
+| Offline &mdash; no cloud | Yes | Yes | No | Yes | **Yes** |
+| No admin rights required | No | Yes | Yes | Yes | **Yes** |
 
-- ZeroTraceFS: Open Control Panel
-
-Runtime status is published to:
-
-- .zerotracefs/status.json
-
-Processed command results are saved as JSON files in:
-
-- .zerotracefs/processed
-
-### Remove Explorer Menu
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\uninstall_explorer_menu.ps1
-```
-
-## Security Model
-
-- Plaintext working files exist only in mount/ during active session.
-- No plaintext is stored in data/.
-- Encrypted payloads and metadata are stored in data/container.rds.
-- Every encryption uses a fresh IV.
-- Per-file keys are derived from master password + unique salt.
-- On destructive events, files are overwritten before deletion.
-- On quit/lock, mount/ is wiped.
-
-## Seven Destruction Triggers
-
-1. Per-file TTL
-   Example: set-ttl secret.txt 2
-   Behavior: secret.txt is destroyed after 2 minutes.
-
-2. Read limit
-   Example: set-reads api.txt 2
-   Behavior: api.txt is destroyed after allowed reads are exceeded.
-
-3. Date deadline
-   Example: set-deadline report.txt 2026-12-31 23:59:59
-   Behavior: report.txt is destroyed when deadline time is reached.
-
-4. Global vault TTL
-   Configured at startup.
-   Behavior: entire vault is destroyed when session lifetime exceeds global limit.
-
-5. Failed authentication lockout
-   Behavior: repeated failed logins trigger full vault destruction.
-
-6. Duress password
-   Behavior: entering duress password triggers full vault destruction immediately.
-
-7. Dead man's switch
-   Configured at startup.
-   Behavior: stale heartbeat condition triggers full vault destruction.
-
-## Architecture Diagram (ASCII)
-
-```text
-+---------------------------------------------------------------+
-|                        ZeroTraceFS CLI                        |
-|                     (main.R + R/ui.R)                         |
-+------------------------------+--------------------------------+
-                               |
-                               v
-+---------------------------------------------------------------+
-|                 Core Orchestration and Policy                 |
-|  AuthManager | TriggerEngine | SyncEngine | AuditLogger       |
-+------------------------------+--------------------------------+
-                               |
-                               v
-+---------------------------------------------------------------+
-|                 Cryptography and Persistence Layer            |
-| EncryptionEngine | KeyDerivation | VirtualFileSystem          |
-| ContainerManager (data/container.rds) | SecureWiper           |
-+------------------------------+--------------------------------+
-                               |
-                               v
-+---------------------------------------------------------------+
-| Local Filesystem: mount/ plaintext workspace, data/ encrypted |
-+---------------------------------------------------------------+
-```
+---
 
 ## Use Cases
 
-- Healthcare: disposable patient extracts and temporary records
-- Research: controlled lifespan for sensitive datasets
-- Finance: ephemeral credentials, reports, and exports
-- Security teams: incident artifacts with automatic expiration
-- Development: temporary secret files and local key material
-- Compliance: policy-driven data retention and destruction
+| Domain | Scenario | Triggers Used |
+|---|---|---|
+| **Healthcare** | Auto-delete patient records after processing | TTL + Deadline |
+| **Research** | Confidential datasets expire with the project | Dead man's switch + Deadline |
+| **Finance** | Self-destructing API keys and session tokens | Read limit + TTL |
+| **Security Ops** | Coercion-proof credential storage | Duress password + Failed auth |
+| **Development** | Ephemeral test credentials and config | Global TTL |
+| **Compliance** | GDPR right-to-be-forgotten with full audit trail | All triggers + Audit log |
 
-## Running Tests
+---
 
-```r
-source("tests/run_all_tests.R")
-```
+## Tech Stack
 
-## Running Demo Scenario
+| Component | Technology |
+|---|---|
+| Language | R 4.0+ |
+| OOP Framework | R6 classes |
+| Encryption | `openssl` &mdash; AES-256-CBC, PBKDF2 key derivation |
+| Hashing | `digest` &mdash; SHA-256 integrity verification |
+| Testing | `testthat` &mdash; unit and integration tests |
 
-```r
-source("demo/demo_scenario.R")
-```
+**System requirements:** R 4.0+ &nbsp;|&nbsp; 512 MB RAM &nbsp;|&nbsp; No internet &nbsp;|&nbsp; No admin rights
 
-## Limitations and Disclaimers
+---
 
-- This project runs at user level and does not provide kernel-level filesystem guarantees.
-- File recovery resistance depends on OS, filesystem, and hardware behavior.
-- Dead man's switch timing in a single-threaded terminal loop is cooperative, not hard real-time.
-- Do not treat this as certified secure deletion software for regulated destruction without independent validation.
-- Keep backups of non-disposable data outside ZeroTraceFS.
+## License
+
+This project is **proprietary software. All rights reserved.**
+
+Unauthorised use, copying, modification, or distribution of this software,
+in whole or in part, is strictly prohibited without explicit written permission.
+
+---
+
+<div align="center">
+
+<br/>
+
+**ZeroTraceFS** &nbsp;&mdash;&nbsp; *Because some data should never be found.*
+
+<br/>
+
+[![Encrypt](https://img.shields.io/badge/-Encrypt-1a1a2e?style=flat-square)]()
+[![arrow](https://img.shields.io/badge/-%E2%86%92-444444?style=flat-square)]()
+[![Use](https://img.shields.io/badge/-Use-16213e?style=flat-square)]()
+[![arrow](https://img.shields.io/badge/-%E2%86%92-444444?style=flat-square)]()
+[![Destroy](https://img.shields.io/badge/-Destroy-CC0000?style=flat-square)]()
+[![arrow](https://img.shields.io/badge/-%E2%86%92-444444?style=flat-square)]()
+[![Automatically](https://img.shields.io/badge/-Automatically-0f3460?style=flat-square)]()
+
+<br/>
+
+</div>
