@@ -17,8 +17,17 @@ TriggerEngine <- R6::R6Class(
       now <- Sys.time()
 
       if (!is.null(file_metadata$ttl_seconds)) {
-        age <- as.numeric(difftime(now, file_metadata$created_at, units = "secs"))
-        if (age > as.numeric(file_metadata$ttl_seconds)) {
+        ttl_anchor <- file_metadata$last_access_at %||% file_metadata$last_read_at %||% file_metadata$created_at
+        if (is.null(ttl_anchor) || all(is.na(ttl_anchor))) {
+          ttl_anchor <- now
+        }
+        anchor_time <- suppressWarnings(as.POSIXct(ttl_anchor, tz = "UTC"))
+        if (is.na(anchor_time)) {
+          anchor_time <- now
+        }
+        age <- as.numeric(difftime(now, anchor_time, units = "secs"))
+        age <- max(0, age)
+        if (age >= as.numeric(file_metadata$ttl_seconds)) {
           return(list(triggered = TRUE, reason = "Per-file TTL expired"))
         }
       }
@@ -43,6 +52,7 @@ TriggerEngine <- R6::R6Class(
 
       if (!is.null(self$global_ttl_seconds)) {
         uptime <- as.numeric(difftime(now, self$system_start_time, units = "secs"))
+        uptime <- max(0, uptime)
         if (uptime > as.numeric(self$global_ttl_seconds)) {
           return(list(triggered = TRUE, reason = "Global vault TTL expired"))
         }
@@ -103,9 +113,9 @@ TriggerEngine <- R6::R6Class(
     serialize = function() {
       list(
         global_ttl_seconds = self$global_ttl_seconds,
-        system_start_time = as.character(self$system_start_time),
+        system_start_time = private$format_time(self$system_start_time),
         dead_man_switch_interval = self$dead_man_switch_interval,
-        last_heartbeat = as.character(self$last_heartbeat)
+        last_heartbeat = private$format_time(self$last_heartbeat)
       )
     },
 
@@ -118,11 +128,35 @@ TriggerEngine <- R6::R6Class(
     }
   ),
   private = list(
+    format_time = function(x) {
+      if (is.null(x) || all(is.na(x))) {
+        return(NA_character_)
+      }
+      format(as.POSIXct(x, tz = "UTC"), "%Y-%m-%dT%H:%M:%OS3Z", tz = "UTC")
+    },
+
     parse_time = function(x) {
       if (is.null(x) || all(is.na(x))) {
         return(Sys.time())
       }
-      as.POSIXct(x, tz = "UTC")
+
+      if (inherits(x, "POSIXt")) {
+        return(as.POSIXct(x, tz = "UTC"))
+      }
+
+      if (is.numeric(x)) {
+        return(as.POSIXct(as.numeric(x), origin = "1970-01-01", tz = "UTC"))
+      }
+
+      text <- as.character(x)[1]
+      parsed <- suppressWarnings(as.POSIXct(text, format = "%Y-%m-%dT%H:%M:%OSZ", tz = "UTC"))
+      if (is.na(parsed)) {
+        parsed <- suppressWarnings(as.POSIXct(text, tz = "UTC"))
+      }
+      if (is.na(parsed)) {
+        return(Sys.time())
+      }
+      parsed
     }
   )
 )

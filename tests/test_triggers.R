@@ -30,11 +30,13 @@ run_test_triggers <- function() {
       filename = "x.txt",
       created_at = Sys.time(),
       modified_at = Sys.time(),
+      last_access_at = Sys.time(),
       last_read_at = NULL,
       read_count = 0L,
       file_size = 10L,
       file_hash = "abc",
       ttl_seconds = NULL,
+      ttl_set_at = NULL,
       max_reads = NULL,
       deadline = NULL,
       is_destroyed = FALSE
@@ -45,7 +47,7 @@ run_test_triggers <- function() {
     t <- TriggerEngine$new()
     meta <- make_meta()
     meta$ttl_seconds <- 60
-    meta$created_at <- Sys.time() - 61
+    meta$last_access_at <- Sys.time() - 61
     res <- t$check_file_triggers(meta)
     stopifnot(isTRUE(res$triggered))
     stopifnot(grepl("TTL", res$reason))
@@ -59,6 +61,16 @@ run_test_triggers <- function() {
     res <- t$check_file_triggers(meta)
     stopifnot(isTRUE(res$triggered))
     stopifnot(grepl("Read limit", res$reason))
+  })
+
+  run_case("TTL does not use stale creation time when access is recent", {
+    t <- TriggerEngine$new()
+    meta <- make_meta()
+    meta$created_at <- Sys.time() - 3600
+    meta$last_access_at <- Sys.time() - 5
+    meta$ttl_seconds <- 60
+    res <- t$check_file_triggers(meta)
+    stopifnot(!isTRUE(res$triggered))
   })
 
   run_case("Deadline in past triggers immediately", {
@@ -89,7 +101,7 @@ run_test_triggers <- function() {
     t <- TriggerEngine$new(global_ttl_seconds = 3600, dead_man_switch_interval = 120)
     meta <- make_meta()
     meta$ttl_seconds <- 120
-    meta$created_at <- Sys.time() - 30
+    meta$last_access_at <- Sys.time() - 30
     meta$max_reads <- 3L
     meta$read_count <- 1L
     meta$deadline <- Sys.time() + 120
@@ -104,7 +116,7 @@ run_test_triggers <- function() {
     t <- TriggerEngine$new()
     meta <- make_meta()
     meta$ttl_seconds <- 1
-    meta$created_at <- Sys.time() - 2
+    meta$last_access_at <- Sys.time() - 2
     meta$max_reads <- 1L
     meta$read_count <- 99L
     meta$deadline <- Sys.time() - 1
@@ -118,7 +130,7 @@ run_test_triggers <- function() {
     vfs <- VirtualFileSystem$new()
     vfs$add_file("demo.txt", charToRaw("hello"), "pw")
     vfs$set_trigger("demo.txt", "ttl_seconds", 1)
-    vfs$files[["demo.txt"]]$metadata$created_at <- Sys.time() - 2
+    vfs$files[["demo.txt"]]$metadata$last_access_at <- Sys.time() - 2
 
     t <- TriggerEngine$new()
     all_res <- t$check_all(vfs)

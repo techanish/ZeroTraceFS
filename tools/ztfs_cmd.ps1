@@ -172,33 +172,62 @@ function Show-ResultDialog {
   ) | Out-Null
 }
 
-function Test-RuntimeActive {
+function Get-RuntimeHealth {
   param(
     [string]$Root,
-    [int]$MaxAgeSeconds = 25
+    [int]$HealthyAgeSeconds = 35,
+    [int]$WarningAgeSeconds = 300
   )
 
   $statusPath = Join-Path $Root ".zerotracefs\status.json"
   if (-not (Test-Path -LiteralPath $statusPath)) {
-    return [pscustomobject]@{ Active = $false; Reason = "Missing .zerotracefs/status.json" }
+    return [pscustomobject]@{
+      Healthy = $false
+      AgeSeconds = $null
+      Reason = "Missing .zerotracefs/status.json"
+    }
   }
 
   try {
     $statusObj = Get-Content -LiteralPath $statusPath -Raw | ConvertFrom-Json
     $timestampRaw = [string]$statusObj.timestamp
     if ([string]::IsNullOrWhiteSpace($timestampRaw)) {
-      return [pscustomobject]@{ Active = $false; Reason = "status.json has no timestamp" }
+      return [pscustomobject]@{
+        Healthy = $false
+        AgeSeconds = $null
+        Reason = "status.json has no timestamp"
+      }
     }
 
     $statusUtc = (Get-Date -Date $timestampRaw).ToUniversalTime()
     $age = [Math]::Abs(((Get-Date).ToUniversalTime() - $statusUtc).TotalSeconds)
-    if ($age -le $MaxAgeSeconds) {
-      return [pscustomobject]@{ Active = $true; Reason = "" }
+    if ($age -le $HealthyAgeSeconds) {
+      return [pscustomobject]@{
+        Healthy = $true
+        AgeSeconds = $age
+        Reason = ""
+      }
     }
 
-    return [pscustomobject]@{ Active = $false; Reason = "Runtime heartbeat stale ($([Math]::Round($age, 1))s old)" }
+    if ($age -le $WarningAgeSeconds) {
+      return [pscustomobject]@{
+        Healthy = $false
+        AgeSeconds = $age
+        Reason = "Runtime heartbeat appears stale ($([Math]::Round($age, 1))s old)"
+      }
+    }
+
+    return [pscustomobject]@{
+      Healthy = $false
+      AgeSeconds = $age
+      Reason = "Runtime likely inactive ($([Math]::Round($age, 1))s old heartbeat)"
+    }
   } catch {
-    return [pscustomobject]@{ Active = $false; Reason = "Could not parse status.json" }
+    return [pscustomobject]@{
+      Healthy = $false
+      AgeSeconds = $null
+      Reason = "Could not parse status.json"
+    }
   }
 }
 
@@ -224,7 +253,7 @@ function Wait-CommandResult {
         }
       }
     }
-    Start-Sleep -Milliseconds 250
+    Start-Sleep -Milliseconds 100
   }
 
   return $null
@@ -248,7 +277,32 @@ function Format-ResultMessage {
     if ($preview.Length -gt 1600) {
       $preview = $preview.Substring(0, 1600) + "`r`n... [truncated]"
     }
-    return "$message`r`n`r`nPreview:`r`n$preview"
+
+    $previewType = [string]$ResultObj.data.preview_type
+    $readCount = $ResultObj.data.read_count
+    $ttlRemaining = $ResultObj.data.ttl_remaining_seconds
+    $previewHeader = if ($previewType -eq "hex") { "Preview (hex):" } else { "Preview:" }
+
+    $suffix = ""
+    if ($null -ne $readCount) {
+      $suffix += "`r`nRead count: $readCount"
+    }
+    if ($null -ne $ttlRemaining) {
+      $suffix += "`r`nTTL remaining (sec): $([Math]::Round([double]$ttlRemaining, 1))"
+    }
+
+    return "$message$suffix`r`n`r`n$previewHeader`r`n$preview"
+  }
+
+  if (($actionName -eq "open-secure" -or $actionName -eq "export") -and $null -ne $ResultObj.data) {
+    $suffix = ""
+    if ($null -ne $ResultObj.data.read_count) {
+      $suffix += "`r`nRead count: $($ResultObj.data.read_count)"
+    }
+    if ($null -ne $ResultObj.data.ttl_remaining_seconds) {
+      $suffix += "`r`nTTL remaining (sec): $([Math]::Round([double]$ResultObj.data.ttl_remaining_seconds, 1))"
+    }
+    return "$message$suffix"
   }
 
   if ($actionName -eq "list" -and $null -ne $ResultObj.data -and $null -ne $ResultObj.data.count) {
@@ -269,13 +323,10 @@ $commandsDir = Join-Path $controlDir "commands"
 Ensure-Directory -Path $commandsDir
 Ensure-Directory -Path $processedDir
 
-$runtime = Test-RuntimeActive -Root $root
-if (-not $runtime.Active) {
-  $runtimeError = "ZeroTraceFS runtime is not active. Start source(""main.R"") first.`r`n$($runtime.Reason)"
-  if (-not $SuppressResultDialog) {
-    Show-ResultDialog -Title "ZeroTraceFS" -Message $runtimeError -Icon ([System.Windows.Forms.MessageBoxIcon]::Warning)
-  }
-  throw $runtimeError
+$runtime = Get-RuntimeHealth -Root $root
+$runtimeWarning = $null
+if (-not $runtime.Healthy) {
+  $runtimeWarning = "ZeroTraceFS runtime may not be actively processing commands.`r`n$($runtime.Reason)"
 }
 
 $normalizedAction = $Action.Trim().ToLowerInvariant()
@@ -419,15 +470,30 @@ $effectiveWait = 0
 if ($PSBoundParameters.ContainsKey("WaitSeconds") -and $null -ne $WaitSeconds) {
   $effectiveWait = [Math]::Max(0, [int]$WaitSeconds)
 } else {
-  $effectiveWait = 15
+  # Smart timeout defaults based on action type
+  switch ($normalizedAction) {
+    # Quick actions: 5 seconds
+    { $_ -in @("status", "list") } { $effectiveWait = 5 }
+    # Slow actions: 20 seconds
+    { $_ -in @("import", "export", "open-secure", "destroy-all") } { $effectiveWait = 20 }
+    # Medium actions: 10 seconds (default)
+    default { $effectiveWait = 10 }
+  }
 }
 
 if (-not $SuppressResultDialog -and $effectiveWait -gt 0) {
   $resultObj = Wait-CommandResult -ProcessedDir $processedDir -SourceFileName (Split-Path -Leaf $created) -TimeoutSeconds $effectiveWait
   if ($null -eq $resultObj) {
-    Show-ResultDialog -Title "ZeroTraceFS" -Message "Command queued, but no processed result arrived yet." -Icon ([System.Windows.Forms.MessageBoxIcon]::Information)
+    $message = "Command queued, but no processed result arrived yet."
+    if (-not [string]::IsNullOrWhiteSpace($runtimeWarning)) {
+      $message = "$message`r`n`r`n$runtimeWarning`r`nStart source(""main.R"") and keep it running."
+    }
+    Show-ResultDialog -Title "ZeroTraceFS" -Message $message -Icon ([System.Windows.Forms.MessageBoxIcon]::Information)
   } else {
     $dialogMessage = Format-ResultMessage -ResultObj $resultObj
+    if (-not [string]::IsNullOrWhiteSpace($runtimeWarning)) {
+      $dialogMessage = "$dialogMessage`r`n`r`nNote: $runtimeWarning"
+    }
     $icon = if ([string]$resultObj.status -eq "ok") {
       [System.Windows.Forms.MessageBoxIcon]::Information
     } else {

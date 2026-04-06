@@ -125,14 +125,15 @@ After installation, right-click files or folders and choose ZeroTraceFS actions:
 - Running main.R consumes these commands on each cycle.
 - Results are written to .zerotracefs/processed.
 - Keep main.R running in the R terminal for Explorer actions to execute.
-- Command launcher checks runtime heartbeat and shows result dialogs (including read preview snippets).
+- Command launcher checks runtime heartbeat and warns when stale, but still queues commands for reliability.
 - Context menu actions run with hidden PowerShell window and use dialog boxes for input when needed.
 
 ### Automatic Read Count from File Open (Best Effort)
 
 - When files are opened directly from mount/, ZeroTraceFS attempts to detect access-time changes and increments read_count.
 - This depends on OS/filesystem last-access timestamp behavior.
-- If your system does not update access time, use Read Preview / read command for guaranteed read_count increments.
+- Read Preview, Open Securely, and CLI read/export always increment read_count.
+- If your system does not update access time for direct file double-clicks, use Open Securely (Password) for strict tracked reads.
 - For password prompt + guaranteed read tracking from File Explorer, use ZeroTraceFS: Open Securely (Password).
 
 ### Click-Based Control Panel UI (Windows)
@@ -159,6 +160,8 @@ The panel provides clickable buttons for all core actions:
 - Destroy Entire Vault
 - Lock Vault
 - Quit Vault
+
+The panel also includes a command box for CLI-style commands in the same UI.
 
 You can also open it from File Explorer folder context menu:
 
@@ -192,7 +195,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\uninstall_explorer_menu.ps1
 
 1. Per-file TTL
    Example: set-ttl secret.txt 2
-   Behavior: secret.txt is destroyed after 2 minutes.
+   Behavior: secret.txt is destroyed after 2 minutes of no access (TTL counts from latest tracked access/read).
 
 2. Read limit
    Example: set-reads api.txt 2

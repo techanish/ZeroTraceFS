@@ -150,7 +150,7 @@ SyncEngine <- R6::R6Class(
           next
         }
 
-        if (!is.na(access_now) && !is.na(previous) && isTRUE(access_now > (previous + 0.5))) {
+        if (!is.na(access_now) && !is.na(previous) && isTRUE(access_now > previous)) {
           if (isTRUE(self$vfs$file_exists(fname))) {
             reads <- c(reads, fname)
           }

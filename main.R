@@ -108,21 +108,74 @@ run_zerotracefs <- function() {
     })
   }
 
+  format_utc_time <- function(x) {
+    if (is.null(x) || length(x) == 0 || all(is.na(x))) {
+      return(NA_character_)
+    }
+    format(as.POSIXct(x, tz = "UTC"), "%Y-%m-%dT%H:%M:%OS3Z", tz = "UTC")
+  }
+
+  compute_file_ttl_remaining <- function(meta, now_time = Sys.time()) {
+    if (is.null(meta) || is.null(meta$ttl_seconds)) {
+      return(NA_real_)
+    }
+
+    ttl_anchor <- meta$last_access_at %||% meta$last_read_at %||% meta$created_at
+    if (is.null(ttl_anchor) || all(is.na(ttl_anchor))) {
+      return(NA_real_)
+    }
+
+    anchor_time <- suppressWarnings(as.POSIXct(ttl_anchor, tz = "UTC"))
+    if (is.na(anchor_time)) {
+      return(NA_real_)
+    }
+
+    age <- as.numeric(difftime(now_time, anchor_time, units = "secs"))
+    max(0, as.numeric(meta$ttl_seconds) - max(0, age))
+  }
+
+  build_file_snapshot <- function(now_time = Sys.time()) {
+    file_names <- vfs$get_all_filenames()
+    if (length(file_names) == 0) {
+      return(list())
+    }
+
+    details <- lapply(file_names, function(fname) {
+      meta <- vfs$get_metadata(fname)
+      list(
+        filename = fname,
+        read_count = if (is.null(meta$read_count)) NA_integer_ else as.integer(meta$read_count),
+        file_size = if (is.null(meta$file_size)) NA_integer_ else as.integer(meta$file_size),
+        created_at = format_utc_time(meta$created_at),
+        modified_at = format_utc_time(meta$modified_at),
+        last_access_at = format_utc_time(meta$last_access_at),
+        last_read_at = format_utc_time(meta$last_read_at),
+        ttl_seconds = if (is.null(meta$ttl_seconds)) NA_real_ else as.numeric(meta$ttl_seconds),
+        ttl_remaining_seconds = compute_file_ttl_remaining(meta, now_time = now_time),
+        max_reads = if (is.null(meta$max_reads)) NA_integer_ else as.integer(meta$max_reads),
+        deadline = format_utc_time(meta$deadline)
+      )
+    })
+
+    details
+  }
+
   build_runtime_snapshot <- function() {
-    now <- Sys.time()
+    now <- as.POSIXct(Sys.time(), tz = "UTC")
     file_names <- vfs$get_all_filenames()
     uptime_seconds <- as.numeric(difftime(now, trigger_engine$system_start_time, units = "secs"))
+    uptime_seconds <- max(0, uptime_seconds)
 
     global_ttl_remaining <- if (is.null(trigger_engine$global_ttl_seconds)) {
       NA_real_
     } else {
-      as.numeric(trigger_engine$global_ttl_seconds - uptime_seconds)
+      max(0, as.numeric(trigger_engine$global_ttl_seconds - uptime_seconds))
     }
 
     deadman_remaining <- if (is.null(trigger_engine$dead_man_switch_interval)) {
       NA_real_
     } else {
-      as.numeric(trigger_engine$dead_man_switch_interval - as.numeric(difftime(now, trigger_engine$last_heartbeat, units = "secs")))
+      max(0, as.numeric(trigger_engine$dead_man_switch_interval - as.numeric(difftime(now, trigger_engine$last_heartbeat, units = "secs"))))
     }
 
     pending_commands <- tryCatch({
@@ -140,7 +193,8 @@ run_zerotracefs <- function() {
       ),
       files = list(
         count = length(file_names),
-        names = file_names
+        names = file_names,
+        details = build_file_snapshot(now_time = now)
       ),
       auth = list(
         failed_attempts = as.integer(auth$failed_attempts),
@@ -152,7 +206,7 @@ run_zerotracefs <- function() {
         global_ttl_remaining_seconds = global_ttl_remaining,
         dead_man_switch_interval_seconds = if (is.null(trigger_engine$dead_man_switch_interval)) NA_real_ else as.numeric(trigger_engine$dead_man_switch_interval),
         dead_man_remaining_seconds = deadman_remaining,
-        last_heartbeat = as.character(trigger_engine$last_heartbeat)
+        last_heartbeat = format_utc_time(trigger_engine$last_heartbeat)
       ),
       external_commands = list(
         pending = as.integer(pending_commands),
@@ -177,6 +231,33 @@ run_zerotracefs <- function() {
       return(raw(0))
     }
     readBin(con, what = "raw", n = size)
+  }
+
+  build_read_preview <- function(filename, content, max_text_chars = 2000L, max_hex_bytes = 256L) {
+    extension <- tolower(tools::file_ext(filename))
+    text_preview <- tryCatch(rawToChar(content), error = function(e) NULL)
+
+    if (!is.null(text_preview)) {
+      text_preview <- suppressWarnings(iconv(text_preview, from = "", to = "UTF-8", sub = ""))
+      if (!is.na(text_preview) && !grepl("[^[:print:]\r\n\t]", text_preview)) {
+        was_truncated <- nchar(text_preview, type = "chars") > as.integer(max_text_chars)
+        return(list(
+          preview_type = "text",
+          preview = substr(text_preview, 1, as.integer(max_text_chars)),
+          preview_truncated = was_truncated,
+          extension = if (!nzchar(extension)) NA_character_ else extension
+        ))
+      }
+    }
+
+    hex_values <- as.character(content)
+    clipped <- head(hex_values, as.integer(max_hex_bytes))
+    list(
+      preview_type = "hex",
+      preview = paste(clipped, collapse = " "),
+      preview_truncated = length(hex_values) > as.integer(max_hex_bytes),
+      extension = if (!nzchar(extension)) NA_character_ else extension
+    )
   }
 
   sanitize_payload <- function(payload) {
@@ -374,20 +455,17 @@ run_zerotracefs <- function() {
           }
 
           content <- vfs$read_file(filename, master_password)
-          text_preview <- tryCatch(rawToChar(content), error = function(e) NULL)
-          is_text <- !is.null(text_preview) && !grepl("[^[:print:]\r\n\t]", text_preview)
+          preview_data <- build_read_preview(filename, content)
+          meta <- vfs$get_metadata(filename)
 
-          preview <- if (is_text) {
-            substr(text_preview, 1, 2000)
-          } else {
-            paste(head(as.character(content), 128), collapse = " ")
-          }
-
-          data <- list(
-            filename = filename,
-            bytes = as.integer(length(content)),
-            preview_type = if (is_text) "text" else "hex",
-            preview = preview
+          data <- c(
+            list(
+              filename = filename,
+              bytes = as.integer(length(content)),
+              read_count = if (is.null(meta$read_count)) NA_integer_ else as.integer(meta$read_count),
+              ttl_remaining_seconds = compute_file_ttl_remaining(meta)
+            ),
+            preview_data
           )
 
           audit$log_event("FILE_READ", "File read via Explorer", filename)
@@ -406,7 +484,7 @@ run_zerotracefs <- function() {
             destination <- fs::path(paths$control_path, "exports")
           }
 
-          content <- vfs$peek_file(filename, master_password)
+          content <- vfs$read_file(filename, master_password)
           export_path <- if (dir.exists(destination)) fs::path(destination, filename) else destination
           parent_dir <- dirname(export_path)
           if (!dir.exists(parent_dir)) {
@@ -418,9 +496,18 @@ run_zerotracefs <- function() {
           close(con)
 
           audit$log_event("FILE_READ", sprintf("Exported via Explorer to %s", export_path), filename)
-          data <- list(filename = filename, export_path = as.character(export_path), bytes = as.integer(length(content)))
+          meta <- vfs$get_metadata(filename)
+          data <- list(
+            filename = filename,
+            export_path = as.character(export_path),
+            bytes = as.integer(length(content)),
+            read_count = if (is.null(meta$read_count)) NA_integer_ else as.integer(meta$read_count),
+            ttl_remaining_seconds = compute_file_ttl_remaining(meta)
+          )
           archive_command_result(command_file, payload, "ok", sprintf("Exported %s", filename), data)
           cli::cli_alert_success(sprintf("Explorer command applied: export %s", filename))
+
+          apply_trigger_actions()
 
         } else if (identical(action, "open-secure")) {
           filename <- resolve_vault_filename(payload$target %||% payload$filename)
@@ -460,6 +547,7 @@ run_zerotracefs <- function() {
           content <- vfs$read_file(filename, master_password)
           open_result <- open_temp_file_with_default_app(filename, content, keep_seconds = 180L)
           audit$log_event("FILE_READ", "Opened securely from Explorer with password", filename)
+          meta <- vfs$get_metadata(filename)
 
           archive_command_result(
             command_file,
@@ -470,7 +558,9 @@ run_zerotracefs <- function() {
               filename = filename,
               temporary_path = open_result$path,
               opened = isTRUE(open_result$opened),
-              expires_in_seconds = open_result$expires_in_seconds
+              expires_in_seconds = open_result$expires_in_seconds,
+              read_count = if (is.null(meta$read_count)) NA_integer_ else as.integer(meta$read_count),
+              ttl_remaining_seconds = compute_file_ttl_remaining(meta)
             )
           )
           cli::cli_alert_success(sprintf("Explorer command applied: open-secure %s", filename))
@@ -891,7 +981,7 @@ run_zerotracefs <- function() {
         if (!vfs$file_exists(filename) || !nzchar(destination)) {
           cli::cli_alert_warning("Usage: export <filename> <dest>")
         } else {
-          content <- vfs$peek_file(filename, master_password)
+          content <- vfs$read_file(filename, master_password)
           export_path <- if (dir.exists(destination)) fs::path(destination, basename(filename)) else destination
           parent_dir <- dirname(export_path)
           if (!dir.exists(parent_dir)) {
@@ -902,6 +992,7 @@ run_zerotracefs <- function() {
           close(con)
           audit$log_event("FILE_READ", sprintf("Exported to %s", export_path), filename)
           cli::cli_alert_success(sprintf("Exported %s", export_path))
+          apply_trigger_actions()
         }
       }
     } else if (identical(action, "destroy")) {

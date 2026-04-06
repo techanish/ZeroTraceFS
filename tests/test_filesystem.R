@@ -50,6 +50,18 @@ run_test_filesystem <- function() {
     vfs$read_file("readme.txt", "master123")
     meta <- vfs$get_metadata("readme.txt")
     stopifnot(meta$read_count == 2L)
+    stopifnot(!is.null(meta$last_read_at))
+    stopifnot(!is.null(meta$last_access_at))
+  })
+
+  run_case("Setting TTL resets access anchor", {
+    vfs <- VirtualFileSystem$new()
+    vfs$add_file("ttl.txt", charToRaw("123"), "master123")
+    vfs$files[["ttl.txt"]]$metadata$created_at <- Sys.time() - 3600
+    vfs$set_trigger("ttl.txt", "ttl_seconds", 60)
+    meta <- vfs$get_metadata("ttl.txt")
+    stopifnot(!is.null(meta$ttl_set_at))
+    stopifnot(as.numeric(difftime(Sys.time(), meta$last_access_at, units = "secs")) < 5)
   })
 
   run_case("Remove file works", {
