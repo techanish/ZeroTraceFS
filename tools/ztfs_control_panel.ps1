@@ -174,7 +174,7 @@ $title.Location = New-Object System.Drawing.Point(25, 20)
 $form.Controls.Add($title)
 
 $sub = New-Object System.Windows.Forms.Label
-$sub.Text = "Keep main.R running in Explorer mode while using these controls"
+$sub.Text = "Keep python main.py running in Explorer mode while using these controls"
 $sub.Font = New-Object System.Drawing.Font("Segoe UI", 9)
 $sub.ForeColor = [System.Drawing.Color]::FromArgb(100, 116, 139)
 $sub.AutoSize = $true
@@ -362,7 +362,7 @@ function Write-LogMessage {
 
 function Update-StatusView {
   if (-not (Test-Path -LiteralPath $statusFile)) {
-    $statusBox.Text = "status.json not found yet. Start main.R first."
+    $statusBox.Text = "status.json not found yet. Start python main.py first."
     $statusIndicator.BackColor = [System.Drawing.Color]::FromArgb(239, 68, 68)
     return
   }
@@ -755,7 +755,7 @@ $timer.Start()
 
 Write-LogMessage "Control panel ready. ZeroTraceFS enhanced version." -Type "success"
 Write-LogMessage "Project root: $root" -Type "info"
-Write-LogMessage "Run main.R and keep it in Explorer mode for command execution." -Type "info"
+Write-LogMessage "Run python main.py and keep it in Explorer mode for command execution." -Type "info"
 Write-LogMessage "Tip: Status bar shows runtime health (Green=Active, Yellow=Warning, Red=Inactive)" -Type "info"
 Update-StatusView
 Update-QuickFileList

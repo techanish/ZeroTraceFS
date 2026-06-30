@@ -1,11 +1,16 @@
-.Rhistory
-.RData
-.Rproj.user/
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+dist/
+build/
 
 # Runtime vault artifacts
 .zerotracefs/
 mount/
-data/container.rds
+data/container.pkl
 
 # OS/editor noise
 Thumbs.db

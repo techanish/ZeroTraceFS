@@ -486,7 +486,7 @@ if (-not $SuppressResultDialog -and $effectiveWait -gt 0) {
   if ($null -eq $resultObj) {
     $message = "Command queued, but no processed result arrived yet."
     if (-not [string]::IsNullOrWhiteSpace($runtimeWarning)) {
-      $message = "$message`r`n`r`n$runtimeWarning`r`nStart source(""main.R"") and keep it running."
+      $message = "$message`r`n`r`n$runtimeWarning`r`nStart python main.py and keep it running."
     }
     Show-ResultDialog -Title "ZeroTraceFS" -Message $message -Icon ([System.Windows.Forms.MessageBoxIcon]::Information)
   } else {
@@ -505,4 +505,4 @@ if (-not $SuppressResultDialog -and $effectiveWait -gt 0) {
 
 Write-Host "Queued ZeroTraceFS command:" -ForegroundColor Green
 Write-Host "  $created"
-Write-Host "Ensure main.R is running in the ZeroTraceFS terminal."
+Write-Host "Ensure python main.py is running in the ZeroTraceFS terminal."

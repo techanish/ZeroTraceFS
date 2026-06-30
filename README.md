@@ -1,7 +1,7 @@
 # ZeroTraceFS
 
-ZeroTraceFS is a self-destructing encrypted file system implemented fully in R.
-It provides a virtual vault where files in mount/ are synchronized into encrypted storage in data/container.rds, then automatically destroyed when configured triggers fire.
+ZeroTraceFS is a self-destructing encrypted file system implemented in Python.
+It provides a virtual vault where files in mount/ are synchronized into encrypted storage in data/container.pkl, then automatically destroyed when configured triggers fire.
 
 ## Highlights
 
@@ -11,22 +11,27 @@ It provides a virtual vault where files in mount/ are synchronized into encrypte
 - Per-file and global self-destruct triggers
 - Secure wipe engine (3 random overwrite passes + 1 zero pass)
 - Encrypted state persistence across sessions
-- Interactive CLI commands in main.R
+- Interactive CLI commands in main.py
 
 ## Prerequisites
 
-- R 4.0+
-- VS Code with R extension
+- Python 3.10+
+- pip
 
 ## Installation and Startup
 
 1. Clone or extract the project into a folder named ZeroTraceFS.
 2. Open the folder in VS Code.
-3. Start an R terminal in VS Code.
+3. Install dependencies:
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
 4. Run:
 
-```r
-source("main.R")
+```powershell
+python main.py
 ```
 
 Control mode behavior:
@@ -36,33 +41,23 @@ Control mode behavior:
 
 ```powershell
 $env:ZTFS_CONTROL_MODE = "terminal"
+python main.py
 ```
-
-On first run, ZeroTraceFS installs missing packages automatically:
-
-- R6
-- openssl
-- digest
-- jsonlite
-- fs
-- later
-- cli
-- crayon
 
 ## Runtime Behavior
 
 ### First Run
 
-1. Installs packages and initializes mount/ and data/.
+1. Initializes mount/ and data/.
 2. Prompts to create a new vault.
 3. Captures master password and duress password.
 4. Captures dead man's switch interval and global vault TTL.
-5. Saves initial encrypted container state to data/container.rds.
+5. Saves initial encrypted container state to data/container.pkl.
 6. Starts sync + command loop.
 
 ### Subsequent Runs
 
-1. Loads container from data/container.rds.
+1. Loads container from data/container.pkl.
 2. Prompts for password.
 3. Master password unlocks vault and populates mount/.
 4. Duress password triggers full destruction and exits with Vault is empty.
@@ -87,7 +82,7 @@ On first run, ZeroTraceFS installs missing packages automatically:
 
 ## File Explorer Integration (Windows)
 
-ZeroTraceFS can now be controlled from Windows File Explorer while main.R is running.
+ZeroTraceFS can now be controlled from Windows File Explorer while main.py is running.
 
 ### Install Explorer Right-Click Menu
 
@@ -122,9 +117,9 @@ After installation, right-click files or folders and choose ZeroTraceFS actions:
 ### How It Works
 
 - Explorer actions enqueue JSON commands in .zerotracefs/commands.
-- Running main.R consumes these commands on each cycle.
+- Running main.py consumes these commands on each cycle.
 - Results are written to .zerotracefs/processed.
-- Keep main.R running in the R terminal for Explorer actions to execute.
+- Keep main.py running in a terminal for Explorer actions to execute.
 - Command launcher checks runtime heartbeat and warns when stale, but still queues commands for reliability.
 - Context menu actions run with hidden PowerShell window and use dialog boxes for input when needed.
 
@@ -185,7 +180,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\uninstall_explorer_menu.ps1
 
 - Plaintext working files exist only in mount/ during active session.
 - No plaintext is stored in data/.
-- Encrypted payloads and metadata are stored in data/container.rds.
+- Encrypted payloads and metadata are stored in data/container.pkl.
 - Every encryption uses a fresh IV.
 - Per-file keys are derived from master password + unique salt.
 - On destructive events, files are overwritten before deletion.
@@ -224,7 +219,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\uninstall_explorer_menu.ps1
 ```text
 +---------------------------------------------------------------+
 |                        ZeroTraceFS CLI                        |
-|                     (main.R + R/ui.R)                         |
+|                     (main.py + zerotracefs/ui.py)             |
 +------------------------------+--------------------------------+
                                |
                                v
@@ -237,7 +232,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\uninstall_explorer_menu.ps1
 +---------------------------------------------------------------+
 |                 Cryptography and Persistence Layer            |
 | EncryptionEngine | KeyDerivation | VirtualFileSystem          |
-| ContainerManager (data/container.rds) | SecureWiper           |
+| ContainerManager (data/container.pkl) | SecureWiper           |
 +------------------------------+--------------------------------+
                                |
                                v
@@ -257,14 +252,14 @@ powershell -ExecutionPolicy Bypass -File .\tools\uninstall_explorer_menu.ps1
 
 ## Running Tests
 
-```r
-source("tests/run_all_tests.R")
+```powershell
+python run_all_tests.py
 ```
 
 ## Running Demo Scenario
 
-```r
-source("demo/demo_scenario.R")
+```powershell
+python demo/demo_scenario.py
 ```
 
 ## Limitations and Disclaimers

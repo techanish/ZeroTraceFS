@@ -7,15 +7,15 @@ ZeroTraceFS is structured into three layers to separate interface, policy/orches
 ```text
 +------------------------------------------------------------------+
 | Layer 1: Interface                                                |
-| main.R, ui.R                                                      |
+| main.py, zerotracefs/ui.py                                        |
 | - Session lifecycle, command loop, status, prompts               |
 +------------------------------------------------------------------+
 | Layer 2: Control + Policy                                         |
-| auth.R, sync.R, triggers.R, audit.R                              |
+| zerotracefs/auth.py, zerotracefs/sync.py, zerotracefs/triggers.py, zerotracefs/audit.py |
 | - Authentication, sync decisions, trigger evaluation, audit trail |
 +------------------------------------------------------------------+
 | Layer 3: Crypto + Storage                                         |
-| encryption.R, key_derivation.R, filesystem.R, container.R, wipe.R|
+| zerotracefs/encryption.py, zerotracefs/key_derivation.py, zerotracefs/filesystem.py, zerotracefs/container.py, zerotracefs/wipe.py |
 | - AES/PBKDF2, encrypted file entries, persistence, secure wipe    |
 +------------------------------------------------------------------+
 ```
@@ -40,7 +40,7 @@ KeyDerivation derives per-file key from master password + salt
 EncryptionEngine encrypts file raw bytes with AES-256-CBC + fresh IV
         |
         v
-ContainerManager save_state -> data/container.rds
+ContainerManager save_state -> data/container.pkl
 ```
 
 ### B) File Read Path
@@ -82,7 +82,7 @@ File Explorer right-click action
 tools/ztfs_cmd.ps1 writes command JSON into .zerotracefs/commands
         |
         v
-main.R loop reads and executes queued command
+main.py loop reads and executes queued command
         |
         v
 Result JSON written to .zerotracefs/processed
@@ -91,7 +91,7 @@ Result JSON written to .zerotracefs/processed
 ### E) Runtime Status Snapshot Path
 
 ```text
-main.R cycle
+main.py cycle
         |
         v
 Build runtime snapshot (files, auth counters, trigger timers, command queue state)
@@ -111,7 +111,7 @@ Control panel and external tooling read status for live UI
 4. 16-byte random IV is generated per encryption operation.
 5. AES-256-CBC encrypts raw payload.
 6. Entry stores ciphertext, IV, salt, key, and metadata.
-7. Only encrypted data and metadata are persisted in container.rds.
+7. Only encrypted data and metadata are persisted in container.pkl.
 
 ### Cryptographic Parameters
 
@@ -159,7 +159,7 @@ For each file destruction:
 For full system destruction:
 
 1. Wipe all files in mount/.
-2. Wipe data/container.rds.
+2. Wipe data/container.pkl.
 3. Clear VFS entries and trigger audit logs.
 4. Force garbage collection.
 
@@ -186,25 +186,24 @@ User enters password
 
 ## 7) State Persistence Model
 
-State is persisted as a single RDS payload:
+State is persisted as a single pickle payload:
 
 ```text
-list(
-  vfs_data = vfs$serialize(),
-  auth_data = auth$serialize(),
-  trigger_data = triggers$serialize(),
-  audit_data = audit$serialize(),
-  version = "1.0.0",
-  created_at = Sys.time()
-)
+{
+  "vfs_data": vfs.serialize(),
+  "auth_data": auth.serialize(),
+  "trigger_data": triggers.serialize(),
+  "audit_data": audit.serialize(),
+  "version": "1.0.0",
+  "created_at": datetime.now(timezone.utc).isoformat()
+}
 ```
 
 Persistence characteristics:
 
-- Cross-session loading via readRDS.
+- Cross-session loading via pickle.
 - Component-level deserialize methods restore class state.
-- Timestamps are serialized as strings and re-parsed.
-- Raw vectors remain raw in RDS payload.
+- Timestamps are serialized as ISO-8601 strings and re-parsed.
 
 ## 8) Security Considerations
 
@@ -216,7 +215,7 @@ Persistence characteristics:
 
 ## 9) Operational Notes
 
-- The runtime loop is cooperative in a single R process.
+- The runtime loop is cooperative in a single Python process.
 - Sync and trigger checks execute on each cycle and around command handling.
 - External command ingestion is file-based and polled each cycle from .zerotracefs/commands.
 - Runtime health/state is exported each cycle to .zerotracefs/status.json.
