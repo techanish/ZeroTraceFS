@@ -11,7 +11,7 @@ source(file.path("R", "audit.R"))
 source(file.path("R", "container.R"))
 
 run_demo_scenario <- function() {
-  cat("\n========== ZeroTraceFS Demo Scenario ==========" , "\n")
+  cat("\n========== ZeroTraceFS  ==========" , "\n")
 
   paths <- run_setup(".")
   wiper <- SecureWiper$new()
