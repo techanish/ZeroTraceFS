@@ -634,7 +634,13 @@ class ZeroTraceFSControlPanel(QMainWindow):
             env.insert("ZTFS_MASTER_PASSWORD", master_pw)
 
         self.engine_process.setProcessEnvironment(env)
-        self.engine_process.start(sys.executable, ["main.py"])
+        
+        if getattr(sys, 'frozen', False):
+            # If running as PyInstaller EXE, restart the same EXE with a flag to act as the engine
+            self.engine_process.start(sys.executable, ["--engine-mode"])
+        else:
+            self.engine_process.start(sys.executable, ["main.py"])
+            
         self.write_log("Background engine started natively.", "success")
 
     def setup_signals(self):
@@ -969,6 +975,12 @@ class ZeroTraceFSControlPanel(QMainWindow):
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "--engine-mode":
+        # PyInstaller packaged mode: act as the engine when spawned with this flag
+        from main import run_zerotracefs
+        run_zerotracefs()
+        sys.exit(0)
+        
     app = QApplication(sys.argv)
     
     # Custom modern dark palette
