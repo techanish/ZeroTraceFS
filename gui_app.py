@@ -18,7 +18,11 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, QPoint, QSize, QProcess, QProcessEnvironment
 from PyQt6.QtGui import QFont, QColor, QPalette, QIcon
 
-PROJECT_ROOT = Path(__file__).parent.resolve()
+if getattr(sys, 'frozen', False):
+    PROJECT_ROOT = Path(sys.executable).parent.resolve()
+else:
+    PROJECT_ROOT = Path(__file__).parent.resolve()
+os.chdir(str(PROJECT_ROOT))
 COMMANDS_DIR = PROJECT_ROOT / ".zerotracefs" / "commands"
 PROCESSED_DIR = PROJECT_ROOT / ".zerotracefs" / "processed"
 MOUNT_DIR = PROJECT_ROOT / "mount"
